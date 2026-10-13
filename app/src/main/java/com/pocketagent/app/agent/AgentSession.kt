@@ -162,6 +162,9 @@ class AgentSession(
         runningJob = null
         setRunning(false)
         append(UiMessage.Role.ERROR, "已停止当前任务")
+        // 给历史一个干净的收尾:被取消的任务往往留下悬空的 user/tool 消息
+        // (LLM 请求被打断,没有 assistant 回复),下一条任务会把两个请求连起来理解
+        history.add(LlmMessage.assistant("[该任务已被用户手动停止,未完成,不要再尝试继续它]"))
     }
 
     fun clearHistory() {
@@ -180,6 +183,9 @@ class AgentSession(
             override val appContext = appContextRef()
             override suspend fun askUser(question: String): String {
                 append(UiMessage.Role.ASKING, question)
+                // 提问时 Agent 往往停留在其他 APP,把 PocketAgent 拉回前台让用户看到问题并回答
+                _currentStep.value = "等你回答"
+                bringSelfToFront()
                 val deferred = CompletableDeferred<String>()
                 pendingAsk = deferred
                 _isAsking.value = true
