@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PocketAgent</string>
+    <string name="a11y_description">PocketAgent 读取屏幕内容并按你的指令自动操作手机(点击/输入/滚动)。仅在你主动下达任务时工作。</string>
 </resources>

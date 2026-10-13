@@ -5,16 +5,29 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pocketagent.app.PocketAgentApp
 import com.pocketagent.app.agent.AgentSession
+import com.pocketagent.app.device.overlay.OverlayController
 import com.pocketagent.app.llm.LlmClient
 import com.pocketagent.app.llm.OpenAiCompatClient
 import com.pocketagent.app.tools.AskUserTool
+import com.pocketagent.app.tools.BackTool
+import com.pocketagent.app.tools.ClickTool
+import com.pocketagent.app.tools.ClickXyTool
 import com.pocketagent.app.tools.FinishTool
+import com.pocketagent.app.tools.GetScreenTool
 import com.pocketagent.app.tools.GetWeatherTool
+import com.pocketagent.app.tools.HomeTool
+import com.pocketagent.app.tools.InputTextTool
+import com.pocketagent.app.tools.LongClickTool
 import com.pocketagent.app.tools.OpenAppTool
+import com.pocketagent.app.tools.OpenDeeplinkTool
+import com.pocketagent.app.tools.ScrollTool
 import com.pocketagent.app.tools.SetAlarmTool
 import com.pocketagent.app.tools.SetVolumeTool
+import com.pocketagent.app.tools.SwipeTool
+import com.pocketagent.app.tools.WaitForChangeTool
 import com.pocketagent.app.tools.ToolRegistry
 import java.time.LocalDateTime
+import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
@@ -22,10 +35,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = (app as PocketAgentApp).settings
 
     private val registry = ToolRegistry().apply {
+        // 系统工具
         register(SetVolumeTool())
         register(SetAlarmTool())
         register(OpenAppTool())
         register(GetWeatherTool())
+        // UI 通用工具(无障碍底座,M2)
+        register(GetScreenTool())
+        register(ClickTool())
+        register(ClickXyTool())
+        register(LongClickTool())
+        register(InputTextTool())
+        register(ScrollTool())
+        register(SwipeTool())
+        register(BackTool())
+        register(HomeTool())
+        register(WaitForChangeTool())
+        register(OpenDeeplinkTool())
+        // 控制类
         register(AskUserTool())
         register(FinishTool())
     }
@@ -42,6 +69,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val messages = session.messages
+
+    init {
+        // 任务执行期间显示悬浮窗(当前步骤 + 停止按钮)
+        val overlay = OverlayController(app)
+        viewModelScope.launch {
+            session.isRunning.collect { running ->
+                if (running) {
+                    overlay.show(session.currentStep.value ?: "任务执行中…") { session.cancel() }
+                } else {
+                    overlay.hide()
+                }
+            }
+        }
+        viewModelScope.launch {
+            session.currentStep.collect { step ->
+                overlay.update(step ?: "任务执行中…")
+            }
+        }
+    }
 
     private fun buildClient(): LlmClient {
         val cfg = settings.getLlmConfig()
@@ -66,6 +112,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             4. 信息不足或需要确认时,用 ask_user 提问,问题要具体、可直接回答。
             5. 任务完成或确定无法完成时,调用 finish,用 result 向用户汇报。
             6. 回复用简体中文,简洁直接,不要长篇解释。
+            7. 操作手机屏幕(进入某个 APP 的某个页面、查某个信息)时,遵循"先观察后行动":
+               先 get_screen 读屏,再决定点哪里;每一步只做一个动作;动作后用 wait_for_change 或再次 get_screen 确认效果。
+            8. 屏幕信息以 get_screen 的输出为准;找不到目标控件时先 scroll 再找;坐标点击(click_xy)是最后手段。
+            9. 遇到弹窗、广告、升级提示,优先关闭它们再继续任务。
+            10. 页面没有变化时不要重复同一动作;连续失败时反思换策略,或调用 finish 汇报卡在哪一步。
         """.trimIndent()
     }
 

@@ -50,8 +50,12 @@ class AgentSession(
     companion object {
         private const val TAG = "PocketAgent"
 
-        /** 单轮任务内工具调用轮数上限。 */
-        const val MAX_TOOL_ROUNDS = 8
+        /** 单轮任务内工具调用步数上限(PRD 5)。 */
+        const val MAX_TOOL_ROUNDS = 25
+
+        /** 上下文裁剪:最近 N 条消息保留完整,更早的超长 tool 结果替换为省略占位。 */
+        private const val HISTORY_KEEP = 16
+        private const val TRIM_THRESHOLD = 400
     }
 
     private var nextId = 0L
@@ -71,6 +75,10 @@ class AgentSession(
     /** 是否正在 ask_user 等待用户回复(此时输入栏仍应可发送)。 */
     private val _isAsking = MutableStateFlow(false)
     val isAsking: StateFlow<Boolean> = _isAsking
+
+    /** 当前执行到的步骤,悬浮窗展示用(如 "第 3 步 click(12)")。 */
+    private val _currentStep = MutableStateFlow<String?>(null)
+    val currentStep: StateFlow<String?> = _currentStep
 
     private fun setRunning(value: Boolean) {
         _isRunning.value = value
@@ -155,6 +163,9 @@ class AgentSession(
 
     private suspend fun runTask(userText: String) {
         android.util.Log.i(TAG, "任务开始: $userText")
+        // 重复动作检测(卡死检测的简化版,PRD 5.2)
+        var lastActionKey: String? = null
+        var repeatCount = 0
         val toolContext = object : ToolContext {
             override val appContext = appContextRef()
             override suspend fun askUser(question: String): String {
@@ -195,6 +206,25 @@ class AgentSession(
                 var finished = false
                 for (call in response.toolCalls) {
                     val tool = tools.get(call.name)
+                    // 重复动作检测:同一动作连续执行视为屏幕未响应
+                    val actionKey = "${call.name}|${call.arguments}"
+                    repeatCount = if (actionKey == lastActionKey) repeatCount + 1 else 1
+                    lastActionKey = actionKey
+                    if (repeatCount == 2) {
+                        history.add(
+                            LlmMessage.user(
+                                "[系统提示] 你已连续两次执行完全相同的动作(${call.name}),屏幕可能没有响应。" +
+                                    "请改用其他策略(重新 get_screen 观察、换定位方式),或调用 finish 汇报失败原因。"
+                            )
+                        )
+                        append(UiMessage.Role.ERROR, "检测到重复动作,已提示模型换策略")
+                    }
+                    if (repeatCount >= 3) {
+                        append(UiMessage.Role.ERROR, "同一动作连续 3 次无响应,判定卡死,任务终止")
+                        return
+                    }
+
+                    _currentStep.value = "第 ${round + 1} 步 · ${call.name}"
                     val result = if (tool == null) {
                         "错误: 未知工具 ${call.name}"
                     } else {
@@ -215,8 +245,10 @@ class AgentSession(
                     }
                 }
                 if (finished) return
+                // 每轮结束裁剪上下文,控制下一次 LLM 调用的 token 开销
+                trimHistory()
             }
-            val msg = "已达到工具调用轮数上限($MAX_TOOL_ROUNDS),任务中止"
+            val msg = "已达到步数上限($MAX_TOOL_ROUNDS),任务中止"
             append(UiMessage.Role.ERROR, msg)
             history.add(LlmMessage.assistant(msg))
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -224,6 +256,23 @@ class AgentSession(
         } catch (e: Exception) {
             android.util.Log.e(TAG, "任务失败", e)
             append(UiMessage.Role.ERROR, "出错了: ${e.message ?: e.javaClass.simpleName}")
+        } finally {
+            _currentStep.value = null
+        }
+    }
+
+    /**
+     * 上下文裁剪(PRD agent/context):最近 HISTORY_KEEP 条保留完整,
+     * 更早的超长 tool 结果(主要是屏幕快照)替换为占位,控制 token 开销。
+     */
+    private fun trimHistory() {
+        if (history.size <= HISTORY_KEEP) return
+        val cutoff = history.size - HISTORY_KEEP
+        for (i in 1 until cutoff) { // index 0 恒为 system
+            val m = history[i]
+            if (m.role == "tool" && (m.content?.length ?: 0) > TRIM_THRESHOLD) {
+                history[i] = m.copy(content = "[早期步骤的屏幕/结果详情已省略]")
+            }
         }
     }
 

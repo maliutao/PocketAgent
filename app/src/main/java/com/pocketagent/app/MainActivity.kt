@@ -14,6 +14,8 @@ import com.pocketagent.app.ui.theme.PocketAgentTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 前台服务保活,降低 ColorOS 冻结概率(应用在前台时允许启动 FGS)
+        AgentForegroundService.start(this)
         setContent {
             PocketAgentTheme {
                 var showSettings by remember { mutableStateOf(false) }
