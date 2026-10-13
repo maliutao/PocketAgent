@@ -5,8 +5,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 设置系统闹钟(ACTION_SET_ALARM) -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-    <!-- 语音输入 -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- open_app 需要枚举已安装应用 -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- 悬浮窗(任务步骤 + 停止按钮) -->

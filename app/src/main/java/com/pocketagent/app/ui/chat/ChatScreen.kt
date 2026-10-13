@@ -1,11 +1,5 @@
 package com.pocketagent.app.ui.chat
 
-import android.app.Activity
-import android.content.Intent
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,7 +38,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pocketagent.app.agent.UiMessage
@@ -95,7 +87,6 @@ fun ChatScreen(
                         input = ""
                     }
                 },
-                onVoice = { text -> input = if (input.isBlank()) text else "$input$text" },
                 onCancel = viewModel::cancel,
             )
         },
@@ -178,48 +169,8 @@ private fun InputBar(
     isRunning: Boolean,
     isAsking: Boolean,
     onSend: () -> Unit,
-    onVoice: (String) -> Unit,
     onCancel: () -> Unit,
 ) {
-    val context = LocalContext.current
-
-    val speechLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val text = result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull().orEmpty()
-            if (text.isNotBlank()) onVoice(text)
-        }
-    }
-
-    fun startRecognition() {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            return // 无可用识别服务时静默忽略,M1 不做提示
-        }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-        }
-        speechLauncher.launch(intent)
-    }
-
-    var hasMicPermission by remember {
-        mutableStateOf(
-            androidx.core.content.ContextCompat.checkSelfPermission(
-                context, android.Manifest.permission.RECORD_AUDIO
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasMicPermission = granted
-        if (granted) startRecognition()
-    }
-
     Surface(tonalElevation = 3.dp) {
         Row(
             modifier = Modifier
@@ -229,11 +180,6 @@ private fun InputBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            IconButton(onClick = {
-                if (hasMicPermission) startRecognition() else permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-            }) {
-                Icon(Icons.Default.Mic, contentDescription = "语音输入")
-            }
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,

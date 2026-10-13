@@ -70,6 +70,17 @@ class AgentAccessibilityService : AccessibilityService() {
      */
     fun snapshot(maxNodes: Int = 150): ScreenSnapshot? {
         val root = rootInActiveWindow ?: return null
+        // Agent 不操作自己的界面:它会点到自己的按钮(真机上点过语音麦克风导致崩溃),
+        // 甚至点到"发送"给自己发消息。返回明确提示让模型先切到目标应用。
+        if (root.packageName?.toString() == packageName) {
+            lastNodes = emptyList()
+            return ScreenSnapshot(
+                packageName,
+                "当前屏幕是 PocketAgent 自己的界面,这里没有你要操作的内容。" +
+                    "请先用 open_app 或 open_deeplink 打开目标应用再继续。",
+                "pocketagent-self",
+            )
+        }
         val lines = ArrayList<String>(maxNodes)
         val nodes = ArrayList<AccessibilityNodeInfo>(maxNodes)
         val fp = StringBuilder()
@@ -126,8 +137,11 @@ class AgentAccessibilityService : AccessibilityService() {
         return tapCenter(node, durationMs = 700)
     }
 
-    /** 按坐标点击。 */
-    fun clickXY(x: Float, y: Float): Boolean = dispatchTap(x, y, 60)
+    /** 按坐标点击(拒绝操作本应用自身的窗口,理由见 snapshot)。 */
+    fun clickXY(x: Float, y: Float): Boolean {
+        if (rootInActiveWindow?.packageName?.toString() == packageName) return false
+        return dispatchTap(x, y, 60)
+    }
 
     /** 输入文本:先聚焦再用 ACTION_SET_TEXT。 */
     fun inputText(index: Int, text: String): Boolean {
