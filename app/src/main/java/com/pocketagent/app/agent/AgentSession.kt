@@ -50,8 +50,8 @@ class AgentSession(
     companion object {
         private const val TAG = "PocketAgent"
 
-        /** 单轮任务内工具调用步数上限(PRD 5)。 */
-        const val MAX_TOOL_ROUNDS = 25
+        /** 单轮任务内工具调用步数上限。UI 导航每步都要观察,25 步不够(真机验证),放宽到 40。 */
+        const val MAX_TOOL_ROUNDS = 40
 
         /** 上下文裁剪:最近 N 条消息保留完整,更早的超长 tool 结果替换为省略占位。 */
         private const val HISTORY_KEEP = 16

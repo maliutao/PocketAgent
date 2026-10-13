@@ -186,6 +186,26 @@ class AgentAccessibilityService : AccessibilityService() {
         return false
     }
 
+    /** 动作执行结果:ok=动作本身是否成功,changed=页面指纹是否变化。 */
+    data class ActResult(val ok: Boolean, val changed: Boolean)
+
+    /**
+     * 执行一个动作并自动等待页面变化(工具层用,省掉单独的 wait_for_change 步)。
+     * 先取动作前指纹做基线(不能动作后再取,点击效果可能已渲染完)。
+     */
+    suspend fun actAndWait(timeoutMs: Long = 1500, action: () -> Boolean): ActResult {
+        val before = snapshot()?.fingerprint
+        val ok = action()
+        if (!ok) return ActResult(false, false)
+        val start = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - start < timeoutMs) {
+            delay(200)
+            val now = snapshot()?.fingerprint
+            if (now != null && now != before) return ActResult(true, true)
+        }
+        return ActResult(true, false)
+    }
+
     // ---------- 内部 ----------
 
     private fun tapCenter(node: AccessibilityNodeInfo, durationMs: Long = 60): Boolean {

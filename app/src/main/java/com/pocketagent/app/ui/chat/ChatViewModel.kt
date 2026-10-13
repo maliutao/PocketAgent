@@ -120,8 +120,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             5. 任务完成或确定无法完成时,调用 finish,用 result 向用户汇报。
             6. 回复用简体中文,简洁直接,不要长篇解释。
             7. 操作手机屏幕(进入某个 APP 的某个页面、查某个信息)时,遵循"先观察后行动":
-               先 get_screen 读屏,再决定点哪里;每一步只做一个动作;动作后用 wait_for_change 或再次 get_screen 确认效果。
+               先 get_screen 读屏,再决定点哪里;每一步只做一个动作。
+               动作类工具(click/scroll/swipe/back 等)已内置等待并会报告页面是否变化,无需再调 wait_for_change;
+               只有需要看新页面的具体内容时才 get_screen。
             8. 屏幕信息以 get_screen 的输出为准;找不到目标控件时先 scroll 再找;坐标点击(click_xy)是最后手段。
+               ask_user 之后屏幕已回到本应用,旧节点序号全部失效,继续操作前先重新打开目标应用。
             9. 遇到弹窗、广告、升级提示,优先关闭它们再继续任务。
             10. 页面没有变化时不要重复同一动作;连续失败时反思换策略,或调用 finish 汇报卡在哪一步。
         """.trimIndent()

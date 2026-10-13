@@ -15,6 +15,13 @@ import kotlinx.serialization.json.putJsonObject
 private fun a11yUnavailable(): String =
     "错误: 无障碍服务未开启,无法操作屏幕。请提示用户在 设置 → 无障碍 中开启 PocketAgent"
 
+/** 动作类工具的统一结果表述(动作已内置等待,模型无需再调 wait_for_change)。 */
+private fun actMsg(actionDesc: String, r: AgentAccessibilityService.ActResult): String = when {
+    !r.ok -> "错误: $actionDesc 失败(节点/坐标可能已失效,建议重新 get_screen)"
+    r.changed -> "$actionDesc,页面已变化(要看新页面内容请 get_screen)"
+    else -> "$actionDesc,但页面未变化(可能无效果,不要原样重复该动作)"
+}
+
 // ---------- 读屏 ----------
 
 class GetScreenTool : Tool {
@@ -40,7 +47,9 @@ class GetScreenTool : Tool {
 
 class ClickTool : Tool {
     override val name = "click"
-    override val description = "点击控件树中某个节点,参数 id 是最近一次 get_screen 输出里的序号。"
+    override val description =
+        "点击控件树中某个节点,参数 id 是最近一次 get_screen 输出里的序号。" +
+            "点击后自动等待并报告页面是否变化,通常无需再调 wait_for_change。"
 
     override val parametersSchema = buildJsonObject {
         put("type", "object")
@@ -56,7 +65,7 @@ class ClickTool : Tool {
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
         val id = args["id"]?.jsonPrimitive?.int ?: return "错误: 缺少 id 参数"
-        return if (svc.clickNode(id)) "已点击节点 [$id]" else "错误: 节点 [$id] 点击失败,建议重新 get_screen"
+        return actMsg("已点击节点 [$id]", svc.actAndWait { svc.clickNode(id) })
     }
 }
 
@@ -77,7 +86,7 @@ class ClickXyTool : Tool {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
         val x = args["x"]?.jsonPrimitive?.double ?: return "错误: 缺少 x"
         val y = args["y"]?.jsonPrimitive?.double ?: return "错误: 缺少 y"
-        return if (svc.clickXY(x.toFloat(), y.toFloat())) "已点击 ($x,$y)" else "错误: 手势派发失败"
+        return actMsg("已点击 ($x,$y)", svc.actAndWait { svc.clickXY(x.toFloat(), y.toFloat()) })
     }
 }
 
@@ -96,7 +105,7 @@ class LongClickTool : Tool {
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
         val id = args["id"]?.jsonPrimitive?.int ?: return "错误: 缺少 id 参数"
-        return if (svc.longClickNode(id)) "已长按节点 [$id]" else "错误: 节点 [$id] 长按失败"
+        return actMsg("已长按节点 [$id]", svc.actAndWait { svc.longClickNode(id) })
     }
 }
 
@@ -119,7 +128,11 @@ class InputTextTool : Tool {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
         val id = args["id"]?.jsonPrimitive?.int ?: return "错误: 缺少 id 参数"
         val text = args["text"]?.jsonPrimitive?.content ?: return "错误: 缺少 text 参数"
-        return if (svc.inputText(id, text)) "已在节点 [$id] 输入 \"$text\"" else "错误: 输入失败,该节点可能不支持"
+        val r = svc.actAndWait { svc.inputText(id, text) }
+        return when {
+            !r.ok -> "错误: 向节点 [$id] 输入失败(该节点可能不是输入框,或序号已失效,建议重新 get_screen)"
+            else -> "已在节点 [$id] 输入 \"$text\"${if (r.changed) ",页面已变化" else ",页面未变化(文本可能已写入)"}"
+        }
     }
 }
 
@@ -144,7 +157,7 @@ class ScrollTool : Tool {
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
         val dir = args["direction"]?.jsonPrimitive?.content ?: "down"
-        return if (svc.scroll(dir)) "已向 $dir 滚动一屏" else "错误: 页面不可滚动"
+        return actMsg("已向 $dir 滚动一屏", svc.actAndWait { svc.scroll(dir) })
     }
 }
 
@@ -169,9 +182,10 @@ class SwipeTool : Tool {
         val y1 = args["y1"]?.jsonPrimitive?.double ?: return "错误: 缺少 y1"
         val x2 = args["x2"]?.jsonPrimitive?.double ?: return "错误: 缺少 x2"
         val y2 = args["y2"]?.jsonPrimitive?.double ?: return "错误: 缺少 y2"
-        return if (svc.swipe(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat())) {
-            "已滑动 ($x1,$y1)→($x2,$y2)"
-        } else "错误: 手势派发失败"
+        return actMsg(
+            "已滑动 ($x1,$y1)→($x2,$y2)",
+            svc.actAndWait { svc.swipe(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat()) }
+        )
     }
 }
 
@@ -188,7 +202,7 @@ class BackTool : Tool {
 
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
-        return if (svc.back()) "已返回" else "错误: 返回失败"
+        return actMsg("已按返回", svc.actAndWait { svc.back() })
     }
 }
 
@@ -203,7 +217,7 @@ class HomeTool : Tool {
 
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val svc = AgentAccessibilityService.instance ?: return a11yUnavailable()
-        return if (svc.home()) "已回到桌面" else "错误: 操作失败"
+        return actMsg("已回到桌面", svc.actAndWait { svc.home() })
     }
 }
 
@@ -249,12 +263,26 @@ class OpenDeeplinkTool : Tool {
 
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val uri = args["uri"]?.jsonPrimitive?.content ?: return "错误: 缺少 uri 参数"
+        val svc = AgentAccessibilityService.instance
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri)).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         return try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri)).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            // 打开后自动等待目标页面加载(动作前取指纹基线,页面加载完成才报"已变化")
+            val r = svc?.actAndWait(2500) {
+                try {
+                    context.appContext.startActivity(intent)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
             }
-            context.appContext.startActivity(intent)
-            "已打开 $uri"
+            when {
+                r == null -> "已打开 $uri(无障碍服务未开启,无法确认页面加载)"
+                !r.ok -> "错误: 无法打开 $uri"
+                r.changed -> "已打开 $uri,页面已加载"
+                else -> "已打开 $uri,页面尚未变化(可能加载慢,可 get_screen 查看)"
+            }
         } catch (e: Exception) {
             "错误: 无法打开 $uri (${e.message})"
         }

@@ -223,7 +223,8 @@ class AskUserTool : Tool {
         val question = args["question"]?.jsonPrimitive?.content?.trim().orEmpty()
         if (question.isEmpty()) return "错误: 缺少 question 参数"
         val answer = context.askUser(question)
-        return "用户回复: $answer"
+        return "用户回复: $answer\n" +
+            "(注意:提问期间屏幕已切回 PocketAgent,之前的节点序号已失效;继续操作手机前先重新打开目标应用并 get_screen)"
     }
 }
 
