@@ -31,35 +31,37 @@ class OverlayController(private val context: Context) {
             TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), context.resources.displayMetrics).toInt()
         }
 
+        // 细条胶囊,贴在状态栏左上角:
+        // 之前的居中胶囊会盖住目标 APP 顶部的搜索栏/工具栏,把 Agent 的点击全吃掉(真机踩坑)。
         val tv = TextView(context).apply {
             setTextColor(Color.WHITE)
-            textSize = 13f
-            maxLines = 2
+            textSize = 11f
+            maxLines = 1
             setText(text)
         }
         val btn = Button(context).apply {
-            setText("停止")
-            textSize = 13f
+            setText("停")
+            textSize = 11f
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#C0392B"))
-                cornerRadius = dp(16).toFloat()
+                cornerRadius = dp(9).toFloat()
             }
-            setPadding(dp(12), dp(2), dp(12), dp(2))
+            setPadding(dp(8), 0, dp(8), 0)
             minHeight = 0
             minWidth = 0
             setOnClickListener { onStop() }
         }
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(6), dp(6), dp(6))
+            setPadding(dp(8), dp(1), dp(2), dp(1))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E6222222"))
-                cornerRadius = dp(18).toFloat()
+                setColor(Color.parseColor("#CC222222"))
+                cornerRadius = dp(10).toFloat()
             }
             addView(tv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                marginEnd = dp(10)
+                marginEnd = dp(6)
             })
             addView(btn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.CENTER_VERTICAL
@@ -73,8 +75,9 @@ class OverlayController(private val context: Context) {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(48)
+            gravity = Gravity.TOP or Gravity.START
+            y = dp(2)
+            x = dp(4)
         }
 
         try {

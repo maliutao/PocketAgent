@@ -66,6 +66,10 @@ class AgentSession(
     /** 会话内保留的对话历史(LLM 侧)。 */
     private val history = mutableListOf<LlmMessage>()
 
+    /** 本次任务结束后是否停留在当前界面(finish stay=true),不拉回 PocketAgent。 */
+    @Volatile
+    private var stayAfterTask = false
+
     private var pendingAsk: CompletableDeferred<String>? = null
     private var runningJob: Job? = null
 
@@ -143,8 +147,10 @@ class AgentSession(
                 runTask(text)
             } finally {
                 setRunning(false)
-                // 任务结束把应用拉回前台展示结果(Agent 常停留在被操作的 APP 里)
-                bringSelfToFront()
+                // 任务结束把应用拉回前台展示结果(Agent 常停留在被操作的 APP 里);
+                // 但"打开微信"类任务(finish stay=true)应停留在目标应用
+                if (!stayAfterTask) bringSelfToFront()
+                stayAfterTask = false
             }
         }
     }
@@ -239,7 +245,8 @@ class AgentSession(
                         }
                     }
                     history.add(LlmMessage.tool(call.id, call.name, result))
-                    if (result == "TASK_DONE" || result == "TASK_FAILED") {
+                    if (result.startsWith("TASK_DONE") || result == "TASK_FAILED") {
+                        stayAfterTask = result == "TASK_DONE_STAY"
                         // finish 工具的 result 参数已由 LLM 放在调用里,提取展示
                         val finalText = extractFinishResult(call.arguments)
                             ?: response.content

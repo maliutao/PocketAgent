@@ -232,7 +232,8 @@ class AskUserTool : Tool {
 class FinishTool : Tool {
     override val name = "finish"
     override val description =
-        "任务完成或确定无法继续时,结束任务并给出最终答复。用 result 面向用户汇报结果。"
+        "任务完成或确定无法继续时,结束任务并给出最终答复。用 result 面向用户汇报结果。" +
+            "若任务的意图是把用户带到某应用/页面(如\"打开微信\"),设 stay=true,结束后停留在当前界面不切回 PocketAgent。"
 
     override val parametersSchema = buildJsonObject {
         put("type", "object")
@@ -245,12 +246,21 @@ class FinishTool : Tool {
                 put("type", "boolean")
                 put("description", "任务是否成功完成")
             }
+            putJsonObject("stay") {
+                put("type", "boolean")
+                put("description", "结束后是否停留在当前界面(打开应用类任务用),默认 false 切回 PocketAgent")
+            }
         }
         putJsonArray("required") { add("result") }
     }
 
     override suspend fun execute(args: JsonObject, context: ToolContext): String {
         val success = args["success"]?.jsonPrimitive?.booleanOrNull ?: true
-        return if (success) "TASK_DONE" else "TASK_FAILED"
+        val stay = args["stay"]?.jsonPrimitive?.booleanOrNull ?: false
+        return when {
+            !success -> "TASK_FAILED"
+            stay -> "TASK_DONE_STAY"
+            else -> "TASK_DONE"
+        }
     }
 }
