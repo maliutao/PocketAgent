@@ -1,15 +1,21 @@
 package com.pocketagent.app.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +36,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pocketagent.app.PocketAgentApp
 import com.pocketagent.app.data.LlmConfig
+import com.pocketagent.app.llm.LlmMessage
+import com.pocketagent.app.llm.OpenAiCompatClient
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,8 +51,30 @@ fun SettingsScreen(
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var model by remember { mutableStateOf(initial.model) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    fun testConnection() {
+        val cfg = LlmConfig(baseUrl, apiKey, model)
+        if (!cfg.isReady) {
+            testResult = "✗ 请先填全三项再测试"
+            return
+        }
+        testing = true
+        testResult = "测试中…"
+        scope.launch {
+            testResult = try {
+                val reply = OpenAiCompatClient(cfg.baseUrl, cfg.apiKey, cfg.model)
+                    .chat(listOf(LlmMessage.user("只回复两个字:成功")), tools = null)
+                "✓ 连接成功,模型回复:${reply.content ?: "(空)"}"
+            } catch (e: Exception) {
+                "✗ 连接失败:${e.message ?: e.javaClass.simpleName}"
+            }
+            testing = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -98,19 +128,42 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(24.dp))
-            Button(
-                onClick = {
-                    val cfg = LlmConfig(baseUrl, apiKey, model)
-                    if (!cfg.isReady) {
-                        scope.launch { snackbar.showSnackbar("三项都要填写") }
-                        return@Button
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        val cfg = LlmConfig(baseUrl, apiKey, model)
+                        if (!cfg.isReady) {
+                            scope.launch { snackbar.showSnackbar("三项都要填写") }
+                            return@Button
+                        }
+                        settings.saveLlmConfig(cfg)
+                        testResult = null
+                        scope.launch { snackbar.showSnackbar("已保存") }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("保存")
+                }
+                OutlinedButton(
+                    onClick = ::testConnection,
+                    enabled = !testing,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (testing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
                     }
-                    settings.saveLlmConfig(cfg)
-                    scope.launch { snackbar.showSnackbar("已保存") }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("保存")
+                    Text("测试连接")
+                }
+            }
+            testResult?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (it.startsWith("✓")) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error,
+                )
             }
             Spacer(Modifier.height(16.dp))
             Text(
