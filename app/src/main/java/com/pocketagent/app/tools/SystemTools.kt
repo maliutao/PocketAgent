@@ -102,12 +102,13 @@ class SetAlarmTool : Tool {
         }
         return try {
             context.appContext.startActivity(intent)
-            // 部分时钟 APP 设完会停留在闹钟界面,稍等它落定后把本应用拉回前台
-            kotlinx.coroutines.delay(800)
+            // 部分时钟 APP(如 ColorOS)设完停留在闹钟界面。
+            // 趁本应用还在前台(未被系统冻结)立即把自己拉回来,不能 delay——
+            // 国产 ROM 会在几百毫秒内冻结后台进程,延迟后协程会被冻住。
             val back = android.content.Intent(context.appContext, com.pocketagent.app.MainActivity::class.java).apply {
                 addFlags(
                     android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 )
             }
             context.appContext.startActivity(back)

@@ -35,8 +35,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         clientProvider = ::buildClient,
         tools = registry,
         systemPrompt = ::buildSystemPrompt,
+        persistFile = java.io.File(app.filesDir, "session.json"),
     ).apply {
         appContextProvider = { app }
+        restore()
     }
 
     val messages = session.messages

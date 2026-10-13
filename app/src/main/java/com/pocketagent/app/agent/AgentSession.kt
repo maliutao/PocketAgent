@@ -14,14 +14,24 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /** UI 展示用的一条消息。 */
+@kotlinx.serialization.Serializable
 data class UiMessage(
     val id: Long,
     val role: Role,
     val text: String,
     val toolName: String? = null,
 ) {
+    @kotlinx.serialization.Serializable
     enum class Role { USER, ASSISTANT, TOOL, ERROR, ASKING }
 }
+
+/** 持久化快照:UI 消息 + LLM 对话历史。 */
+@kotlinx.serialization.Serializable
+private data class SessionSnapshot(
+    val nextId: Long,
+    val uiMessages: List<UiMessage>,
+    val llmHistory: List<com.pocketagent.app.llm.LlmMessage>,
+)
 
 /**
  * M1 版 Agent 循环:对话 + 工具调用。
@@ -34,6 +44,8 @@ class AgentSession(
     private val tools: ToolRegistry,
     /** 每轮任务开始时生成系统提示词(内含当前时间等动态信息)。 */
     private val systemPrompt: () -> String = { "" },
+    /** 会话持久化文件,null 表示不持久化(仅内存)。 */
+    private val persistFile: java.io.File? = null,
 ) {
     companion object {
         private const val TAG = "PocketAgent"
@@ -66,6 +78,38 @@ class AgentSession(
 
     private fun append(role: UiMessage.Role, text: String, toolName: String? = null) {
         _messages.value = _messages.value + UiMessage(nextId++, role, text, toolName)
+        save()
+    }
+
+    // ---- 持久化:防止进程被 ROM 杀掉/冻结后丢失会话 ----
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun save() {
+        val file = persistFile ?: return
+        val snapshot = SessionSnapshot(nextId, _messages.value, history)
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                file.writeText(json.encodeToString(SessionSnapshot.serializer(), snapshot))
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "会话保存失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 启动时恢复上次会话。 */
+    fun restore() {
+        val file = persistFile ?: return
+        if (!file.exists()) return
+        try {
+            val snapshot = json.decodeFromString(SessionSnapshot.serializer(), file.readText())
+            nextId = snapshot.nextId
+            _messages.value = snapshot.uiMessages
+            history.addAll(snapshot.llmHistory)
+            android.util.Log.i(TAG, "已恢复会话: ${snapshot.uiMessages.size} 条消息")
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "会话恢复失败: ${e.message}")
+        }
     }
 
     /** 用户点击发送。若当前正在 ask_user 等待,该输入作为答案。 */
@@ -106,6 +150,7 @@ class AgentSession(
         if (isRunning.value) cancel()
         history.clear()
         _messages.value = emptyList()
+        save()
     }
 
     private suspend fun runTask(userText: String) {

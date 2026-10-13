@@ -1,5 +1,6 @@
 package com.pocketagent.app.llm
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 /** LLM 客户端统一接口,M2/M3 之前先只有 OpenAI 兼容实现。 */
@@ -21,6 +22,7 @@ data class ToolDefinition(
 )
 
 /** 对话消息,足以表达 OpenAI 兼容协议所需的角色。 */
+@Serializable
 data class LlmMessage(
     val role: String,
     val content: String? = null,
@@ -38,11 +40,12 @@ data class LlmMessage(
     }
 }
 
+@Serializable
 data class ToolCall(
     val id: String,
     val name: String,
     /** 参数 JSON 字符串,可能为空对象。 */
-    val arguments: String,
+    val arguments: String = "{}",
 )
 
 data class LlmResponse(
