@@ -4,7 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
@@ -20,12 +19,13 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 天气查询,使用 Open-Meteo 免费 API(无需 key)。
- * 先地理编码城市名,再查实时天气。返回原始数据,由 LLM 组织成自然语言。
+ * 先地理编码城市名,再查实时天气;days>=2 时附带未来几天预报。
+ * 返回原始数据,由 LLM 组织成自然语言。
  */
 class GetWeatherTool : Tool {
     override val name = "get_weather"
     override val description =
-        "查询指定城市的实时天气(温度、体感、天气现象、湿度、风速)。"
+        "查询指定城市的天气。默认只查实时天气;用户问未来天气时传 days(1~7,含今天)获取逐日预报。"
 
     override val parametersSchema = buildJsonObject {
         put("type", "object")
@@ -33,6 +33,10 @@ class GetWeatherTool : Tool {
             putJsonObject("city") {
                 put("type", "string")
                 put("description", "城市名,支持中文,如\"北京\"、\"杭州\"")
+            }
+            putJsonObject("days") {
+                put("type", "integer")
+                put("description", "预报天数 1~7(含今天),默认 1 表示仅实时天气;用户问明天传 2,问未来一周传 7")
             }
         }
         putJsonArray("required") { add("city") }
@@ -49,6 +53,7 @@ class GetWeatherTool : Tool {
         withContext(Dispatchers.IO) {
             val city = args["city"]?.jsonPrimitive?.content?.trim().orEmpty()
             if (city.isEmpty()) return@withContext "错误: 缺少 city 参数"
+            val days = (args["days"]?.jsonPrimitive?.int ?: 1).coerceIn(1, 7)
 
             // 1) 城市名 → 经纬度
             val geoUrl = "https://geocoding-api.open-meteo.com/v1/search" +
@@ -66,18 +71,38 @@ class GetWeatherTool : Tool {
             val wxUrl = "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=$lat&longitude=$lon" +
                 "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m" +
-                "&timezone=auto&forecast_days=1"
+                "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+                "&timezone=auto&forecast_days=$days"
             val wxText = httpGet(wxUrl) ?: return@withContext "错误: 天气服务不可用"
-            val current = json.parseToJsonElement(wxText).jsonObject["current"]!!.jsonObject
+            val wx = json.parseToJsonElement(wxText).jsonObject
+            val current = wx["current"]!!.jsonObject
 
             val temp = current["temperature_2m"]!!.jsonPrimitive.double
             val feels = current["apparent_temperature"]!!.jsonPrimitive.double
             val humidity = current["relative_humidity_2m"]!!.jsonPrimitive.int
             val wind = current["wind_speed_10m"]!!.jsonPrimitive.double
-            val code = current["weather_code"]!!.jsonPrimitive.int
-            val desc = weatherCodeText(code)
+            val desc = weatherCodeText(current["weather_code"]!!.jsonPrimitive.int)
 
-            "$resolved 当前天气:$desc,气温 ${temp}°C(体感 ${feels}°C),湿度 $humidity%,风速 ${wind}km/h"
+            val sb = StringBuilder()
+            sb.append("$resolved 当前天气:$desc,气温 ${temp}°C(体感 ${feels}°C),湿度 $humidity%,风速 ${wind}km/h")
+
+            // 3) 逐日预报
+            val daily = wx["daily"]?.jsonObject
+            if (days >= 2 && daily != null) {
+                val dates = daily["time"]?.jsonArray ?: return@withContext sb.toString()
+                sb.append("。未来 ${dates.size} 天预报:")
+                dates.forEachIndexed { i, d ->
+                    val date = d.jsonPrimitive.content
+                    val code = daily["weather_code"]?.jsonArray?.get(i)?.jsonPrimitive?.int ?: 0
+                    val max = daily["temperature_2m_max"]?.jsonArray?.get(i)?.jsonPrimitive?.double
+                    val min = daily["temperature_2m_min"]?.jsonArray?.get(i)?.jsonPrimitive?.double
+                    val rain = daily["precipitation_probability_max"]?.jsonArray?.get(i)?.jsonPrimitive?.int
+                    sb.append("$date ${weatherCodeText(code)} ${min}~${max}°C")
+                    if (rain != null) sb.append("(降水概率${rain}%)")
+                    sb.append(";")
+                }
+            }
+            sb.toString()
         }
 
     private fun httpGet(url: String): String? = try {
