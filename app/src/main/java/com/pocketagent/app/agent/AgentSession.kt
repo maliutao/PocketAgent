@@ -56,6 +56,10 @@ class AgentSession(
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning
 
+    /** 是否正在 ask_user 等待用户回复(此时输入栏仍应可发送)。 */
+    private val _isAsking = MutableStateFlow(false)
+    val isAsking: StateFlow<Boolean> = _isAsking
+
     private fun setRunning(value: Boolean) {
         _isRunning.value = value
     }
@@ -112,10 +116,12 @@ class AgentSession(
                 append(UiMessage.Role.ASKING, question)
                 val deferred = CompletableDeferred<String>()
                 pendingAsk = deferred
+                _isAsking.value = true
                 try {
                     return deferred.await()
                 } finally {
                     pendingAsk = null
+                    _isAsking.value = false
                 }
             }
         }

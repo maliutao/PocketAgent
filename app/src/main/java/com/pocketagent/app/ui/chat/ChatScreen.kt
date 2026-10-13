@@ -58,6 +58,7 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val isRunning by viewModel.session.isRunning.collectAsState()
+    val isAsking by viewModel.session.isAsking.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -87,6 +88,7 @@ fun ChatScreen(
                 value = input,
                 onValueChange = { input = it },
                 isRunning = isRunning,
+                isAsking = isAsking,
                 onSend = {
                     if (input.isNotBlank()) {
                         viewModel.send(input)
@@ -174,6 +176,7 @@ private fun InputBar(
     value: String,
     onValueChange: (String) -> Unit,
     isRunning: Boolean,
+    isAsking: Boolean,
     onSend: () -> Unit,
     onVoice: (String) -> Unit,
     onCancel: () -> Unit,
@@ -235,11 +238,11 @@ private fun InputBar(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("输入指令…") },
+                placeholder = { Text(if (isAsking) "回复它的问题…" else "输入指令…") },
                 maxLines = 4,
                 shape = RoundedCornerShape(22.dp),
             )
-            if (isRunning) {
+            if (isRunning && !isAsking) {
                 IconButton(onClick = onCancel) {
                     Icon(Icons.Default.Stop, contentDescription = "停止", tint = MaterialTheme.colorScheme.error)
                 }
