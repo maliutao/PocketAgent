@@ -73,12 +73,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     init {
         // 任务执行期间显示悬浮窗(当前步骤 + 停止按钮)
         val overlay = OverlayController(app)
+        // 任务执行期间持有唤醒锁:锁屏后任务不因 CPU 休眠而饿死
+        // (上限 10 分钟兜底,任务结束即释放,不会常驻耗电)
+        val pm = app.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "PocketAgent:task")
+        wakeLock.setReferenceCounted(false)
         viewModelScope.launch {
             session.isRunning.collect { running ->
                 if (running) {
+                    wakeLock.acquire(10 * 60 * 1000L)
                     overlay.show(session.currentStep.value ?: "任务执行中…") { session.cancel() }
                 } else {
                     overlay.hide()
+                    if (wakeLock.isHeld) wakeLock.release()
                 }
             }
         }
