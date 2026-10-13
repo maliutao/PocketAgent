@@ -174,7 +174,16 @@ class OpenAppTool : Tool {
                 label.contains(query, ignoreCase = true) || query.contains(label, ignoreCase = true) ||
                     pkg.contains(query, ignoreCase = true)
             }
-            .minByOrNull { it.second.length }
+            .minByOrNull { (_, label) ->
+                // 优先级:名称完全相等 > 前缀匹配 > 其余包含;同级取更短名。
+                // 否则"设置"会被"语音设置"这类长名抢先(系统应用可能是英文标签)。
+                val tier = when {
+                    label.equals(query, ignoreCase = true) -> 0
+                    label.startsWith(query, ignoreCase = true) -> 1
+                    else -> 2
+                }
+                tier * 1000 + label.length
+            }
         return if (match != null) {
             val intent = pm.getLaunchIntentForPackage(match.first)
             if (intent != null) {

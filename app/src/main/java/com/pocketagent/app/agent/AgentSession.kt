@@ -95,12 +95,14 @@ class AgentSession(
 
     private fun save() {
         val file = persistFile ?: return
-        val snapshot = SessionSnapshot(nextId, _messages.value, history)
+        // history 是主线程持续追加的可变列表,必须先拷贝,否则 IO 线程序列化时
+        // 会被并发修改(ConcurrentModificationException,message 为 null)
+        val snapshot = SessionSnapshot(nextId, _messages.value, history.toList())
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 file.writeText(json.encodeToString(SessionSnapshot.serializer(), snapshot))
             } catch (e: Exception) {
-                android.util.Log.w(TAG, "会话保存失败: ${e.message}")
+                android.util.Log.w(TAG, "会话保存失败: ${e.message}", e)
             }
         }
     }
@@ -141,6 +143,8 @@ class AgentSession(
                 runTask(text)
             } finally {
                 setRunning(false)
+                // 任务结束把应用拉回前台展示结果(Agent 常停留在被操作的 APP 里)
+                bringSelfToFront()
             }
         }
     }
@@ -311,4 +315,22 @@ class AgentSession(
     }
 
     private fun appContextRef() = appContextProvider()
+
+    /**
+     * 任务结束后把 PocketAgent 拉回前台展示结果。
+     * 与 set_alarm 相同手法:singleTask + REORDER_TO_FRONT,不触发重建。
+     */
+    private fun bringSelfToFront() {
+        try {
+            val ctx = appContextRef()
+            val intent = android.content.Intent(ctx, com.pocketagent.app.MainActivity::class.java)
+                .addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
+            ctx.startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "拉回前台失败: ${e.message}")
+        }
+    }
 }
