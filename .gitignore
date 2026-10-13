@@ -7,3 +7,6 @@ build/
 captures/
 .externalNativeBuild
 .cxx
+# 签名密钥库,绝不提交
+*.keystore
+*.jks
