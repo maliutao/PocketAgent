@@ -91,12 +91,18 @@ class OpenAiCompatClient(
             }
 
             val parsed = json.decodeFromString(ApiResponse.serializer(), responseText)
+            val choice = parsed.choices.firstOrNull()
             android.util.Log.d(
                 TAG,
                 "LLM 响应 <- ${android.os.SystemClock.elapsedRealtime() - startedAt}ms, " +
-                    "文本=${parsed.choices.firstOrNull()?.message?.content?.take(100)?.replace('\n', ' ')} " +
-                    "工具调用=${parsed.choices.firstOrNull()?.message?.toolCalls?.size ?: 0} 个"
+                    "finish=${choice?.finishReason}, " +
+                    "文本=${choice?.message?.content?.take(100)?.replace('\n', ' ')} " +
+                    "工具调用=${choice?.message?.toolCalls?.size ?: 0} 个"
             )
+            // 空文本且无工具调用属于异常响应,打印原始报文用于排查
+            if (choice != null && choice.message?.content.isNullOrBlank() && choice.message?.toolCalls.isNullOrEmpty()) {
+                android.util.Log.w(TAG, "异常空响应,原始报文: ${responseText.take(2000)}")
+            }
             val message = parsed.choices.firstOrNull()?.message
                 ?: throw IOException("LLM 响应缺少 choices.message: ${responseText.take(300)}")
             LlmResponse(
@@ -146,7 +152,10 @@ class OpenAiCompatClient(
         val usage: Usage? = null,
     ) {
         @Serializable
-        data class Choice(val message: ApiMessage? = null)
+        data class Choice(
+            val message: ApiMessage? = null,
+            @SerialName("finish_reason") val finishReason: String? = null,
+        )
 
         @Serializable
         data class Usage(
@@ -158,7 +167,7 @@ class OpenAiCompatClient(
     @Serializable
     private data class ApiMessage(
         val content: String? = null,
-        val toolCalls: List<ApiToolCall>? = null,
+        @SerialName("tool_calls") val toolCalls: List<ApiToolCall>? = null,
     ) {
         @Serializable
         data class ApiToolCall(
