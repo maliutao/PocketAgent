@@ -36,6 +36,8 @@ class AgentSession(
     private val systemPrompt: () -> String = { "" },
 ) {
     companion object {
+        private const val TAG = "PocketAgent"
+
         /** 单轮任务内工具调用轮数上限。 */
         const val MAX_TOOL_ROUNDS = 8
     }
@@ -103,6 +105,7 @@ class AgentSession(
     }
 
     private suspend fun runTask(userText: String) {
+        android.util.Log.i(TAG, "任务开始: $userText")
         val toolContext = object : ToolContext {
             override val appContext = appContextRef()
             override suspend fun askUser(question: String): String {
@@ -133,6 +136,7 @@ class AgentSession(
 
                 if (response.toolCalls.isEmpty()) {
                     // 纯文本回复,任务自然结束
+                    android.util.Log.i(TAG, "任务完成(纯文本回复)")
                     response.content?.let { append(UiMessage.Role.ASSISTANT, it) }
                     return
                 }
@@ -143,8 +147,11 @@ class AgentSession(
                     val result = if (tool == null) {
                         "错误: 未知工具 ${call.name}"
                     } else {
+                        android.util.Log.i(TAG, "工具调用: ${call.name}(${call.arguments})")
                         append(UiMessage.Role.TOOL, "调用 ${call.name}(${call.arguments}) …", call.name)
-                        runTool(tool, call.arguments, toolContext)
+                        runTool(tool, call.arguments, toolContext).also {
+                            android.util.Log.i(TAG, "工具结果: ${call.name} -> ${it.take(200)}")
+                        }
                     }
                     history.add(LlmMessage.tool(call.id, call.name, result))
                     if (result == "TASK_DONE" || result == "TASK_FAILED") {
@@ -164,6 +171,7 @@ class AgentSession(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            android.util.Log.e(TAG, "任务失败", e)
             append(UiMessage.Role.ERROR, "出错了: ${e.message ?: e.javaClass.simpleName}")
         }
     }

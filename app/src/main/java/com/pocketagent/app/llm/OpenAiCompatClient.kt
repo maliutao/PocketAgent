@@ -33,6 +33,10 @@ class OpenAiCompatClient(
     private val model: String,
 ) : LlmClient {
 
+    companion object {
+        private const val TAG = "PocketAgent"
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -46,6 +50,12 @@ class OpenAiCompatClient(
 
     override suspend fun chat(messages: List<LlmMessage>, tools: List<ToolDefinition>?): LlmResponse =
         withContext(Dispatchers.IO) {
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            val url = buildString {
+                append(baseUrl.trimEnd('/'))
+                append("/chat/completions")
+            }
+            android.util.Log.d(TAG, "LLM 请求 -> $url (model=$model, ${messages.size} 条消息, ${tools?.size ?: 0} 个工具)")
             val body = buildJsonObject {
                 put("model", model)
                 put("messages", messages.toJsonArray())
@@ -65,10 +75,6 @@ class OpenAiCompatClient(
                 }
             }.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
 
-            val url = buildString {
-                append(baseUrl.trimEnd('/'))
-                append("/chat/completions")
-            }
             val request = Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $apiKey")
@@ -78,12 +84,19 @@ class OpenAiCompatClient(
             val responseText = http.newCall(request).await().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
+                    android.util.Log.e(TAG, "LLM HTTP ${resp.code}: ${text.take(500)}")
                     throw IOException("LLM HTTP ${resp.code}: ${text.take(500)}")
                 }
                 text
             }
 
             val parsed = json.decodeFromString(ApiResponse.serializer(), responseText)
+            android.util.Log.d(
+                TAG,
+                "LLM 响应 <- ${android.os.SystemClock.elapsedRealtime() - startedAt}ms, " +
+                    "文本=${parsed.choices.firstOrNull()?.message?.content?.take(100)?.replace('\n', ' ')} " +
+                    "工具调用=${parsed.choices.firstOrNull()?.message?.toolCalls?.size ?: 0} 个"
+            )
             val message = parsed.choices.firstOrNull()?.message
                 ?: throw IOException("LLM 响应缺少 choices.message: ${responseText.take(300)}")
             LlmResponse(
