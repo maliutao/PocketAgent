@@ -188,7 +188,10 @@ class AgentSession(
                 it as? JsonObject ?: kotlinx.serialization.json.buildJsonObject { }
             }
         }
-        tool.execute(args, context)
+        // 工具统一在 IO 线程执行(如遍历应用列表),避免阻塞主线程导致界面冻结
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            tool.execute(args, context)
+        }
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (e: Exception) {

@@ -125,6 +125,19 @@ class OpenAppTool : Tool {
     override val description =
         "打开手机上的应用。参数可以是应用名(如\"小红书\"、\"微信\")或包名(如 com.xingin.xhs)。"
 
+    /** 已安装应用列表缓存:首次全量加载较慢(几百个应用的标签),缓存 10 分钟。 */
+    companion object {
+        @Volatile
+        private var cachedApps: List<Pair<String, String>>? = null // (packageName, label)
+        @Volatile
+        private var cachedAt: Long = 0
+        private const val CACHE_MS = 10 * 60 * 1000L
+
+        fun invalidateCache() {
+            cachedApps = null
+        }
+    }
+
     override val parametersSchema = buildJsonObject {
         put("type", "object")
         putJsonObject("properties") {
@@ -147,14 +160,18 @@ class OpenAppTool : Tool {
             context.appContext.startActivity(it)
             return "已打开 $query"
         }
-        // 2) 按应用名模糊匹配(包含关系,取最短名优先)
-        val apps = pm.getInstalledApplications(0)
+        // 2) 按应用名模糊匹配(包含关系,取最短名优先),结果走 10 分钟缓存
+        val now = android.os.SystemClock.elapsedRealtime()
+        var apps = cachedApps
+        if (apps == null || now - cachedAt > CACHE_MS) {
+            apps = pm.getInstalledApplications(0).map { it.packageName to pm.getApplicationLabel(it).toString() }
+            cachedApps = apps
+            cachedAt = now
+        }
         val match = apps
-            .mapNotNull { app ->
-                val label = pm.getApplicationLabel(app).toString()
-                if (label.contains(query, ignoreCase = true) || query.contains(label, ignoreCase = true)) {
-                    app.packageName to label
-                } else null
+            .filter { (pkg, label) ->
+                label.contains(query, ignoreCase = true) || query.contains(label, ignoreCase = true) ||
+                    pkg.contains(query, ignoreCase = true)
             }
             .minByOrNull { it.second.length }
         return if (match != null) {
